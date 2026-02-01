@@ -1,0 +1,8 @@
+.env*
+data-dev/
+
+.venv
+__pycache__/
+
+.DS_Store
+*.code-workspace

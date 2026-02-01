@@ -1,0 +1,18 @@
+services:
+  spam-restrictor-bot-dev:
+    build: .
+    container_name: spam-restrictor-bot-dev
+    restart: unless-stopped
+    volumes:
+      - ./data-dev:/app/data
+      - ./src:/app/src:ro
+    env_file:
+      - .env.dev
+    environment:
+      - TZ=${TZ:-Europe/Moscow}
+      - LOG_LEVEL=DEBUG
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
