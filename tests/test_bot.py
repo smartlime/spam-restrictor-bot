@@ -83,3 +83,147 @@ async def test_stats_computation(temp_db):
     assert stats['restricted_users'] == 2
     assert stats['banned_users'] == 3
     # Не закрываем вручную - фикстура сама закроет
+
+
+@pytest.mark.asyncio
+async def test_list_command_empty(temp_config, temp_db):
+    """Тест команды /ls когда список пуст."""
+    bot = SpamRestrictorBot(temp_config, temp_db)
+    
+    # Создаем mock объекты для update и context
+    update = MagicMock()
+    update.effective_user.id = temp_config.admin_user_id
+    update.message.reply_text = AsyncMock()
+    
+    context = MagicMock()
+    
+    # Вызываем команду
+    await bot.list_command(update, context)
+    
+    # Проверяем что отправлено сообщение о пустом списке
+    update.message.reply_text.assert_called_once()
+    call_args = update.message.reply_text.call_args[0][0]
+    assert "пуст" in call_args.lower()
+
+
+@pytest.mark.asyncio
+async def test_list_command_with_users(temp_config, temp_db):
+    """Тест команды /ls с пользователями в списке."""
+    bot = SpamRestrictorBot(temp_config, temp_db)
+    
+    # Добавляем тестовых пользователей
+    await temp_db.add_restricted_user(12345, 'testuser', 'Test', 'User')
+    await temp_db.add_restricted_user(67890, None, 'Another', 'User')
+    
+    update = MagicMock()
+    update.effective_user.id = temp_config.admin_user_id
+    update.message.reply_text = AsyncMock()
+    
+    context = MagicMock()
+    
+    # Вызываем команду
+    await bot.list_command(update, context)
+    
+    # Проверяем что отправлено сообщение со списком
+    update.message.reply_text.assert_called_once()
+    call_args = update.message.reply_text.call_args[0][0]
+    assert "12345" in call_args
+    assert "67890" in call_args
+    assert "@testuser" in call_args
+
+
+@pytest.mark.asyncio
+async def test_restore_command_by_id(temp_config, temp_db):
+    """Тест команды /res с ID пользователя."""
+    bot = SpamRestrictorBot(temp_config, temp_db)
+    
+    # Добавляем тестового пользователя
+    await temp_db.add_restricted_user(12345, 'testuser', 'Test', 'User')
+    
+    update = MagicMock()
+    update.effective_user.id = temp_config.admin_user_id
+    update.message.reply_text = AsyncMock()
+    
+    context = MagicMock()
+    context.args = ['12345']
+    context.bot.restrict_chat_member = AsyncMock()
+    
+    # Вызываем команду
+    await bot.restore_command(update, context)
+    
+    # Проверяем что пользователь удален из БД
+    is_restricted = await temp_db.is_user_restricted(12345)
+    assert not is_restricted
+    
+    # Проверяем что отправлено сообщение об успехе
+    update.message.reply_text.assert_called_once()
+    call_args = update.message.reply_text.call_args[0][0]
+    assert "12345" in call_args
+    assert "✅" in call_args
+
+
+@pytest.mark.asyncio
+async def test_restore_command_by_username(temp_config, temp_db):
+    """Тест команды /res с username пользователя."""
+    bot = SpamRestrictorBot(temp_config, temp_db)
+    
+    # Добавляем тестового пользователя
+    await temp_db.add_restricted_user(12345, 'testuser', 'Test', 'User')
+    
+    update = MagicMock()
+    update.effective_user.id = temp_config.admin_user_id
+    update.message.reply_text = AsyncMock()
+    
+    context = MagicMock()
+    context.args = ['@testuser']
+    context.bot.restrict_chat_member = AsyncMock()
+    
+    # Вызываем команду
+    await bot.restore_command(update, context)
+    
+    # Проверяем что пользователь удален из БД
+    is_restricted = await temp_db.is_user_restricted(12345)
+    assert not is_restricted
+    
+    # Проверяем что отправлено сообщение об успехе
+    update.message.reply_text.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_restore_command_user_not_found(temp_config, temp_db):
+    """Тест команды /res когда пользователь не найден."""
+    bot = SpamRestrictorBot(temp_config, temp_db)
+    
+    update = MagicMock()
+    update.effective_user.id = temp_config.admin_user_id
+    update.message.reply_text = AsyncMock()
+    
+    context = MagicMock()
+    context.args = ['99999']
+    
+    # Вызываем команду
+    await bot.restore_command(update, context)
+    
+    # Проверяем что отправлено сообщение об ошибке
+    update.message.reply_text.assert_called_once()
+    call_args = update.message.reply_text.call_args[0][0]
+    assert "не найден" in call_args.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_username(temp_db):
+    """Тест поиска пользователя по username."""
+    # Добавляем пользователя
+    await temp_db.add_restricted_user(12345, 'testuser', 'Test', 'User')
+    
+    # Ищем по username
+    user = await temp_db.get_user_by_username('testuser')
+    
+    assert user is not None
+    assert user['user_id'] == 12345
+    assert user['username'] == 'testuser'
+    assert user['first_name'] == 'Test'
+    
+    # Ищем несуществующего пользователя
+    user = await temp_db.get_user_by_username('nonexistent')
+    assert user is None

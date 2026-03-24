@@ -211,6 +211,60 @@ class Database:
         logger.info(f"Найдено {len(results)} пользователей с истекшими ограничениями")
         return results
     
+    async def get_all_restricted_users(self) -> List[Dict]:
+        """
+        Получить список всех ограниченных пользователей.
+        
+        Returns:
+            Список словарей с информацией о пользователях
+        """
+        cursor = await self.connection.execute("""
+            SELECT user_id, username, first_name, last_name, restricted_at
+            FROM restricted_users
+            ORDER BY restricted_at DESC
+        """)
+        
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            results.append({
+                'user_id': row[0],
+                'username': row[1],
+                'first_name': row[2],
+                'last_name': row[3],
+                'restricted_at': row[4]
+            })
+        
+        return results
+    
+    async def get_user_by_username(self, username: str) -> Optional[Dict]:
+        """
+        Найти ограниченного пользователя по username.
+        
+        Args:
+            username: username пользователя (без @)
+        
+        Returns:
+            Словарь с информацией о пользователе или None если не найден
+        """
+        cursor = await self.connection.execute("""
+            SELECT user_id, username, first_name, last_name, restricted_at
+            FROM restricted_users
+            WHERE username = ?
+        """, (username,))
+        row = await cursor.fetchone()
+        
+        if not row:
+            return None
+        
+        return {
+            'user_id': row[0],
+            'username': row[1],
+            'first_name': row[2],
+            'last_name': row[3],
+            'restricted_at': row[4]
+        }
+    
     async def get_stats(self) -> Dict:
         """
         Получить статистику по базе данных.

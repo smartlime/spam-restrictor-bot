@@ -109,6 +109,123 @@ class SpamRestrictorBot:
         
         await update.message.reply_text(status_text, parse_mode="HTML")
     
+    async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /ls - показать список ограниченных пользователей."""
+        # Проверка прав администратора
+        if not self.config.admin_user_id or update.effective_user.id != self.config.admin_user_id:
+            return
+        
+        # Получаем список ограниченных пользователей
+        users = await self.db.get_all_restricted_users()
+        
+        if not users:
+            await update.message.reply_text("📋 Список ограниченных пользователей пуст")
+            return
+        
+        # Формируем список
+        text = f"📋 <b>Ограниченные пользователи ({len(users)}):</b>\n\n"
+        
+        for user in users:
+            user_id = user['user_id']
+            username = user['username'] or 'нет'
+            first_name = user['first_name'] or 'нет имени'
+            
+            text += f"• <code>{user_id}</code> - {first_name}"
+            if username:
+                text += f" (@{username})"
+            text += "\n"
+        
+        text += f"\n<i>Используй /res &lt;id&gt; чтобы снять ограничения</i>"
+        
+        await update.message.reply_text(text, parse_mode="HTML")
+    
+    async def restore_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /res - снять ограничения с пользователя."""
+        # Проверка прав администратора
+        if not self.config.admin_user_id or update.effective_user.id != self.config.admin_user_id:
+            return
+        
+        # Проверяем аргументы
+        if not context.args or len(context.args) == 0:
+            await update.message.reply_text(
+                "❌ Укажи ID или username пользователя\n\n"
+                "Использование: <code>/res &lt;user_id&gt;</code> или <code>/res @username</code>",
+                parse_mode="HTML"
+            )
+            return
+        
+        user_arg = context.args[0]
+        user_id = None
+        
+        # Проверяем формат аргумента - username или ID
+        if user_arg.startswith('@'):
+            # Это username, убираем @
+            username = user_arg[1:]
+            user_info = await self.db.get_user_by_username(username)
+            
+            if not user_info:
+                await update.message.reply_text(
+                    f"❌ Пользователь @{username} не найден в списке ограниченных",
+                    parse_mode="HTML"
+                )
+                return
+            
+            user_id = user_info['user_id']
+        else:
+            # Это должен быть ID
+            try:
+                user_id = int(user_arg)
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ Неверный формат. Укажи ID (число) или username (начинается с @)",
+                    parse_mode="HTML"
+                )
+                return
+            
+            # Проверяем что пользователь в списке ограниченных
+            if not await self.db.is_user_restricted(user_id):
+                await update.message.reply_text(
+                    f"❌ Пользователь <code>{user_id}</code> не найден в списке ограниченных",
+                    parse_mode="HTML"
+                )
+                return
+        
+        try:
+            # Снимаем ограничения в Telegram
+            from telegram import ChatPermissions
+            full_permissions = ChatPermissions(
+                can_send_messages=True,
+                can_send_audios=True,
+                can_send_documents=True,
+                can_send_photos=True,
+                can_send_videos=True,
+                can_send_video_notes=True,
+                can_send_voice_notes=True,
+                can_send_polls=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True,
+            )
+            
+            await context.bot.restrict_chat_member(
+                chat_id=self.config.group_id,
+                user_id=user_id,
+                permissions=full_permissions
+            )
+            
+            # Удаляем из базы данных
+            await self.db.remove_restricted_user(user_id)
+            
+            await update.message.reply_text(
+                f"✅ Ограничения сняты с пользователя <code>{user_id}</code>",
+                parse_mode="HTML"
+            )
+            
+            logger.info(f"Администратор снял ограничения с пользователя {user_id}")
+            
+        except TelegramError as e:
+            await update.message.reply_text(f"❌ Ошибка: {e}")
+            logger.error(f"Ошибка при снятии ограничений с {user_id}: {e}")
+    
     async def track_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик изменений статуса участников чата.
@@ -307,6 +424,8 @@ class SpamRestrictorBot:
         
         # Регистрируем обработчики команд (только для администратора)
         application.add_handler(CommandHandler("status", self.status_command))
+        application.add_handler(CommandHandler("ls", self.list_command))
+        application.add_handler(CommandHandler("res", self.restore_command))
         
         # Регистрируем обработчик изменений статуса участников
         application.add_handler(ChatMemberHandler(
